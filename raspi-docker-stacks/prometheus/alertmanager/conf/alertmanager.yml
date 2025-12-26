@@ -1,0 +1,45 @@
+route:
+  group_by: [...]
+  receiver: 'default-receiver'
+  # All alerts that do not match the following child routes
+  # will remain at the root node and be dispatched to 'default-receiver'.  
+  routes:
+  # All alerts with alertname=DeadMansSnitch
+  # are dispatched to the deadmanssnitch receiver webhook
+  - match:
+      alertname: DeadMansSnitch
+    receiver: deadmanssnitch
+    repeat_interval: 5m
+  - match:
+      alertname: Healthcheck.io
+    receiver: healthcheckio
+    repeat_interval: 30s
+    group_interval: 1s
+
+receivers:
+  - name: 'deadmanssnitch'
+    webhook_configs:
+    - send_resolved: false
+      url: 'https://nosnch.in/SNITCH_URL'
+  - name: 'healthcheckio'
+    webhook_configs:
+    - send_resolved: false
+      url: 'https://hc-ping.com/UNIQUE_PING_URL'
+  - name: 'default-receiver'
+    email_configs:
+    - send_resolved: true
+      to: $EMAIL_TO_ACCOUNT
+      from: $GMAIL_ACCOUNT
+      smarthost: smtp.gmail.com:587
+      auth_identity: "$GMAIL_ACCOUNT"
+      auth_username: "$GMAIL_ACCOUNT"
+      auth_password: "$GMAIL_AUTH_TOKEN"
+      text: "{{ .CommonAnnotations.description }}"
+    - send_resolved: true
+      to: $EMAIL_TO_ACCOUNT_2
+      from: $GMAIL_ACCOUNT
+      smarthost: smtp.gmail.com:587
+      auth_identity: "$GMAIL_ACCOUNT"
+      auth_username: "$GMAIL_ACCOUNT"
+      auth_password: "$GMAIL_AUTH_TOKEN"
+      text: "{{ .CommonAnnotations.description }}"      
