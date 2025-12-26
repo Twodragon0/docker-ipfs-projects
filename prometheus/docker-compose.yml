@@ -1,0 +1,241 @@
+version: "3.8"
+
+networks:
+  net:
+    driver: overlay
+    attachable: true
+  caddy_internal_net:
+    external: true
+
+volumes:
+  prometheus:
+    driver: glusterfs:latest
+    name: "rpi-gfs"
+  grafana: {}
+  alertmanager: {}
+
+configs:
+  prometheus:
+    name: prometheus-${CONFIG_VERSION:-0}
+    file: ./prometheus/conf/prometheus.yml
+  node_rules:
+    name: swarm_node_rules-${CONFIG_VERSION:-0}
+    file: ./prometheus/rules/swarm_node.rules.yml
+  task_rules:
+    name: swarm_task_rules-${CONFIG_VERSION:-0}
+    file: ./prometheus/rules/swarm_task.rules.yml
+  meta_rules:
+    file: ./prometheus/rules/snitch.rules.yml
+  healthcheck-io_rules:
+    file: ./prometheus/rules/healthcheck-io_rules.yml
+  grafana_datasource:
+    file: ./grafana/datasources/prometheus.yaml
+  grafana_provisioning_dashboards:
+    file: ./grafana/swarmprom_dashboards.yml
+  grafana_dashboards_nodes:
+    file: ./grafana/dashboards/swarmprom-nodes-dash.json
+  grafana_dashboards_prometheus:
+    file: ./grafana/dashboards/swarmprom-prometheus-dash.json
+  grafana_dashboards_services:
+    file: ./grafana/dashboards/swarmprom-services-dash.json
+  alert_manager:
+    name: alert_manager-${CONFIG_VERSION:-0}
+    file: ./alertmanager/conf/prod.alertmanager.yml
+  blackbox_exporter:
+    file: ./blackbox-exporter/blackbox.yml
+
+services:
+  doh-status-probe:
+    image: prom/blackbox-exporter:v0.16.0
+    networks:
+      - net
+    command:
+      - "--config.file=/config/blackbox.yml"
+    configs:
+      - source: blackbox_exporter
+        target: /config/blackbox.yml
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 32M
+
+  dockerd-exporter:
+    image: jmb12686/socat
+    networks:
+      - net
+    command: -d -d TCP-L:9323,fork TCP:172.18.0.1:9323
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 32M
+
+  cadvisor:
+    image: jmb12686/cadvisor
+    networks:
+      - net
+    command: -logtostderr -docker_only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/rootfs:ro
+      - /var/run:/var/run
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    # Do not publish ports - force access thru caddy_internal_net
+    # ports:
+    #   - 9094:8080
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+  grafana:
+    image: grafana/grafana:6.3.6
+    networks:
+      - net
+      - caddy_internal_net
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning/
+      #- GF_SERVER_ROOT_URL=${GF_SERVER_ROOT_URL:-localhost}
+      #- GF_SMTP_ENABLED=${GF_SMTP_ENABLED:-false}
+      #- GF_SMTP_FROM_ADDRESS=${GF_SMTP_FROM_ADDRESS:-grafana@test.com}
+      #- GF_SMTP_FROM_NAME=${GF_SMTP_FROM_NAME:-Grafana}
+      #- GF_SMTP_HOST=${GF_SMTP_HOST:-smtp:25}
+      #- GF_SMTP_USER=${GF_SMTP_USER}
+      #- GF_SMTP_PASSWORD=${GF_SMTP_PASSWORD}
+    volumes:
+      - grafana:/var/lib/grafana
+    configs:
+      - source: grafana_datasource
+        target: /etc/grafana/provisioning/datasources/prometheus.yaml
+      - source: grafana_provisioning_dashboards
+        target: /etc/grafana/provisioning/dashboards/swarmprom_dashboards.yml
+      - source: grafana_dashboards_nodes
+        target: /etc/grafana/dashboards/swarmprom-nodes-dash.json
+      - source: grafana_dashboards_prometheus
+        target: /etc/grafana/dashboards/swarmprom-prometheus-dash.json
+      - source: grafana_dashboards_services
+        target: /etc/grafana/dashboards/swarmprom-services-dash.json
+    # Do not publish ports - force access thru caddy_internal_net
+    # ports:
+    #   - 3000:3000
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+  alertmanager:
+    image: jmb12686/alertmanager-swarm
+    networks:
+      - net
+      - caddy_internal_net
+    environment:
+      - SLACK_URL=${SLACK_URL:-https://hooks.slack.com/services/TOKEN}
+      - SLACK_CHANNEL=${SLACK_CHANNEL:-general}
+      - SLACK_USER=${SLACK_USER:-alertmanager}
+    configs:
+      - source: alert_manager
+        target: /etc/alertmanager/alertmanager.yml
+    command:
+      - "--web.external-url=https://alertmanager.int.belisleonline.com"
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--cluster.listen-address=0.0.0.0:8001"
+      - "--cluster.peer=tasks.alertmanager:8001"
+      # - '--log.level=debug'
+      # - '--cluster.advertise-address=' --> This arg gets set in the jmb12686/alertmanager-swarm image entry-point script.
+      # It effectively gets set to the eth1 interface IP @ port 8001 to support Swarm networking
+    # Do not publish ports - force access thru caddy_internal_net
+      # ports:
+      # - 9093:9093
+    volumes:
+      - alertmanager:/alertmanager
+    deploy:
+      mode: replicated
+      replicas: 2
+      placement:
+        max_replicas_per_node: 1      
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+  node-exporter:
+    image: jmb12686/node-exporter
+    networks:
+      - net
+    environment:
+      - NODE_ID={{.Node.ID}}
+    # Do not publish ports - force access thru caddy_internal_net
+      # ports:
+      # - 9100:9100
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /etc/hostname:/etc/nodename:ro
+    command:
+      - "--path.sysfs=/host/sys"
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--collector.textfile.directory=/etc/node-exporter/"
+      - "--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--no-collector.ipvs"
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 32M
+
+  prometheus:
+    image: prom/prometheus
+    networks:
+      - net
+      - caddy_internal_net
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-21d}"
+      - "--storage.tsdb.retention.size=3GB"
+      - "--web.external-url=https://prometheus.int.belisleonline.com"
+    volumes:
+      - prometheus:/prometheus
+    configs:
+      - source: prometheus
+        target: /etc/prometheus/prometheus.yml
+      - source: node_rules
+        target: /etc/prometheus/swarm_node.rules.yml
+      - source: task_rules
+        target: /etc/prometheus/swarm_task.rules.yml
+      - source: meta_rules
+        target: /etc/prometheus/snitch.rules.yml
+      - source: healthcheck-io_rules
+        target: /etc/prometheus/healthcheck-io.rules.yml
+    # Do not publish ports - force access thru caddy_internal_net
+    # ports:
+    #   - 9090:9090
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.platform.arch == aarch64
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          memory: 512M
+    stop_grace_period: 60s
