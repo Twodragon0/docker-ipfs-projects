@@ -1,0 +1,32 @@
+# These settings are synced to GitHub by https://probot.github.io/apps/settings/
+_extends: .github
+
+repository:
+  name: docker-tools
+  description: ":whale: Docker tooling for multiple use cases"
+  topics: ivka, docker, monorepo
+  homepage: https://github.com/cloudkats/docker-tools
+  private: false
+  has_projects: false
+  has_wiki: false
+  is_template: false
+  has_downloads: false
+
+branches:
+  - name: master
+    protection:
+      # Required. Require at least one approving review on a pull request, before merging. Set to null to disable.
+      required_pull_request_reviews:
+        # The number of approvals required. (1-6)
+        required_approving_review_count: 1
+        # Dismiss approved reviews automatically when a new commit is pushed.
+        dismiss_stale_reviews: true
+        # Blocks merge until code owners have reviewed.
+        require_code_owner_reviews: true
+      # Required. Require status checks to pass before merging. Set to null to disable
+      required_status_checks:
+        # Required. Require branches to be up to date before merging.
+        strict: true
+        # Required. The list of status checks to require in order to merge into this branch
+        contexts: ["build-on-merge-request"]
+      enforce_admins: true
