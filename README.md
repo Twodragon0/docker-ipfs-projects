@@ -6,6 +6,86 @@
 
 This repository consolidates various Docker and IPFS-related projects, including containerization tools, IPFS deployments, and infrastructure automation.
 
+## 🏗️ Architecture
+
+### Docker & IPFS Infrastructure Architecture
+
+```mermaid
+graph TB
+    subgraph "Development Environment"
+        DEV[Developer<br/>Local Machine]
+        DOCKER_BUILD[Docker Build<br/>docker-tools]
+    end
+    
+    subgraph "Container Registry"
+        REGISTRY[Docker Registry<br/>Public/Private]
+    end
+    
+    subgraph "Orchestration Layer"
+        K8S[Kubernetes<br/>ipfs-kubernetes]
+        SWARM[Docker Swarm<br/>raspi-docker-stacks<br/>Multi-arch: arm/amd64]
+    end
+    
+    subgraph "IPFS Network"
+        IPFS_CLUSTER[IPFS Cluster<br/>Collaborative Nodes]
+        IPFS_NODES[IPFS Nodes<br/>Distributed Storage]
+        IPFS_GATEWAY[IPFS Gateway<br/>DNSLink]
+    end
+    
+    subgraph "Edge Devices"
+        RASPI[Raspberry Pi<br/>OpenWrt IPFS]
+        JETSON[NVIDIA Jetson<br/>docker-jetson]
+        PICAM[Pi Camera<br/>picam-ipfs]
+    end
+    
+    DEV --> DOCKER_BUILD
+    DOCKER_BUILD --> REGISTRY
+    REGISTRY --> K8S
+    REGISTRY --> SWARM
+    K8S --> IPFS_CLUSTER
+    SWARM --> IPFS_CLUSTER
+    IPFS_CLUSTER --> IPFS_NODES
+    IPFS_NODES --> IPFS_GATEWAY
+    RASPI --> IPFS_CLUSTER
+    JETSON --> SWARM
+    PICAM --> IPFS_NODES
+    
+    style DEV fill:#e1f5ff
+    style REGISTRY fill:#fff4e1
+    style IPFS_CLUSTER fill:#e8f5e9
+    style K8S fill:#f3e5f5
+```
+
+### Docker Tools Architecture
+
+```mermaid
+graph LR
+    subgraph "Docker Tools"
+        TERRAFORM[Terraform/Terragrunt<br/>IaC Containers]
+        NODEJS[Node.js<br/>v12/v13/v14]
+        SECURITY[Security Tools<br/>c7n-mailer<br/>githound]
+        K8S_TOOLS[K8s Tools<br/>kubectl/helm/az]
+        LOAD_TEST[Artillery.io<br/>Load Testing]
+    end
+    
+    subgraph "Build Pipeline"
+        BUILD[Build Scripts<br/>bin/build.sh]
+        PUSH[Push Scripts<br/>bin/push.sh]
+        VERSION[Version Management<br/>bin/version.sh]
+    end
+    
+    TERRAFORM --> BUILD
+    NODEJS --> BUILD
+    SECURITY --> BUILD
+    K8S_TOOLS --> BUILD
+    LOAD_TEST --> BUILD
+    BUILD --> VERSION
+    VERSION --> PUSH
+    
+    style BUILD fill:#e1f5ff
+    style PUSH fill:#fff4e1
+```
+
 ## 📁 Projects
 
 ### Docker Tools
